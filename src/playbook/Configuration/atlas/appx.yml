@@ -4,7 +4,7 @@ description: Removes AppX packages and prevents them from being reinstalled
 onUpgrade: false
 actions:
   - !writeStatus: {status: 'Removing AppX packages'}
-  
+
   # The reason of removing those applications is that they might be sending user data,
   # showing unwanted content and using hardware resources. They can also simply be annoyances
   # that are never used. However, most of these applications can be reinstalled via
@@ -17,8 +17,8 @@ actions:
   # Get current AppX packages to deprovision removed ones afterward
   - !powerShell:
     command: |
-      (Get-AppxPackage).PackageFamilyName |
-        Out-File """$([Environment]::GetFolderPath('Windows'))\AtlasModules\AtlasPackagesOld.txt"""
+      Get-AppxPackage | Select-Object -ExpandProperty PackageFamilyName |
+        Out-File """$([Environment]::GetFolderPath('Windows'))\AtlasModules\AtlasPackagesOld.txt""" -Encoding UTF8
     runas: currentUserElevated
     wait: true
 
@@ -81,10 +81,15 @@ actions:
   # https://learn.microsoft.com/en-us/windows/application-management/remove-provisioned-apps-during-update
   - !powerShell:
     command: |
-      $a = """$([Environment]::GetFolderPath('Windows'))\AtlasModules\AtlasPackagesOld.txt"""
-      (diff (gc $a) ((Get-AppxPackage).PackageFamilyName)).InputObject | 
-        Foreach-Object { New-Item -Path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Appx\AppxAllUserStore\Deprovisioned" -Name $_ -Force };
-      Remove-Item $a -Force
+      $windir = [Environment]::GetFolderPath('Windows')
+      $oldPackages = Get-Content "$windir\AtlasModules\AtlasPackagesOld.txt"
+      $currentPackages = Get-AppxPackage | Select-Object -ExpandProperty PackageFamilyName
+      $removedPackages = Compare-Object $oldPackages $currentPackages | Where-Object { $_.SideIndicator -eq '<=' } | Select-Object -ExpandProperty InputObject
+      $deprovisionKey = 'HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Appx\AppxAllUserStore\Deprovisioned'
+      foreach ($pkg in $removedPackages) {
+        New-Item -Path $deprovisionKey -Name $pkg -Force -EA 0 | Out-Null
+      }
+      Remove-Item "$windir\AtlasModules\AtlasPackagesOld.txt" -Force -EA 0
     runas: currentUserElevated
     wait: true
 
