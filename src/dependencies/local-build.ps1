@@ -3,7 +3,7 @@ Param(
     [switch]$ReplaceOldPlaybook,
     [switch]$DontOpenPbLocation,
     [switch]$NoPassword,
-    [ValidateSet('Dependencies', 'Requirements', 'WinverRequirement', IgnoreCase = $true)]
+    [ValidateSet('Dependencies', 'Requirements', 'WinverRequirement', 'Verification', IgnoreCase = $true)]
     [string[]]$Removals,
     [string]$FileName = 'Atlas Test'
 )
@@ -14,6 +14,7 @@ $ErrorActionPreference = 'Stop'
 $removeDependencies = $false
 $removeRequirements = $false
 $removeWinverRequirement = $false
+$removeVerification = $false
 $buildStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
 
 if ($Removals) {
@@ -22,6 +23,7 @@ if ($Removals) {
             'dependencies' { $removeDependencies = $true }
             'requirements' { $removeRequirements = $true }
             'winverrequirement' { $removeWinverRequirement = $true }
+            'verification' { $removeVerification = $true }
         }
     }
 }
@@ -311,6 +313,7 @@ try {
     $playbookConfPatternTokens = @()
     if ($removeRequirements) { $playbookConfPatternTokens += '<Requirement>' }
     if ($removeWinverRequirement) { $playbookConfPatternTokens += '<string>', '</SupportedBuilds>', '<SupportedBuilds>' }
+    if ($removeVerification) { $playbookConfPatternTokens += '<ProductCode>' }
 
     $stagedPlaybookConf = $false
     if ($playbookConfPatternTokens.Count -gt 0) {
