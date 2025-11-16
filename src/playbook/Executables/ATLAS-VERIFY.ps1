@@ -15,6 +15,9 @@ $global:results = @{
     }
 }
 
+$global:currentBuild = [System.Environment]::OSVersion.Version.Build
+$global:currentArch = [System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture.ToString()
+
 function Write-Header {
     param([string]$Text)
     $line = "=" * 80
@@ -69,6 +72,38 @@ function Add-Result {
     }
 }
 
+function Test-BuildFilter {
+    param($Builds)
+
+    if ($null -eq $Builds) { return $true }
+
+    $buildsArray = if ($Builds -is [array]) { $Builds } else { @($Builds) }
+
+    foreach ($buildCondition in $buildsArray) {
+        if ($buildCondition -match '^>=(\d+)$') {
+            if ($global:currentBuild -ge [int]$matches[1]) { return $true }
+        } elseif ($buildCondition -match '^>(\d+)$') {
+            if ($global:currentBuild -gt [int]$matches[1]) { return $true }
+        } elseif ($buildCondition -match '^<(\d+)$') {
+            if ($global:currentBuild -lt [int]$matches[1]) { return $true }
+        } elseif ($buildCondition -match '^<=(\d+)$') {
+            if ($global:currentBuild -le [int]$matches[1]) { return $true }
+        } elseif ($buildCondition -match '^(\d+)$') {
+            if ($global:currentBuild -eq [int]$matches[1]) { return $true }
+        }
+    }
+
+    return $false
+}
+
+function Test-CpuArchFilter {
+    param($CpuArch)
+
+    if ($null -eq $CpuArch) { return $true }
+
+    return $global:currentArch -eq $CpuArch
+}
+
 function Compare-RegistryValue {
     param($Expected, $Actual)
 
@@ -99,28 +134,50 @@ function Compare-RegistryValue {
     return $Expected.ToString().Trim() -eq $Actual.ToString().Trim()
 }
 
-function Test-RegistryAction {
+function Test-RegistryValue {
     param($Action, $FileName)
 
     if ($null -eq $Action.path) { return }
     if ($null -eq $Action.value) { return }
+
+    if (!(Test-BuildFilter $Action.builds)) {
+        Add-Result -Category 'Registry' -Status 'SKIP' -Source $FileName -Item "$($Action.path)\$($Action.value)" `
+            -Expected "Skipped" -Actual "Build $global:currentBuild" `
+            -Details "Not applicable to current build (requires: $($Action.builds -join ', '))"
+        return
+    }
+
+    if (!(Test-CpuArchFilter $Action.cpuArch)) {
+        Add-Result -Category 'Registry' -Status 'SKIP' -Source $FileName -Item "$($Action.path)\$($Action.value)" `
+            -Expected "Skipped" -Actual "Arch $global:currentArch" `
+            -Details "Not applicable to current architecture (requires: $($Action.cpuArch))"
+        return
+    }
 
     $paths = if ($Action.path -is [array]) { $Action.path } else { @($Action.path) }
 
     foreach ($path in $paths) {
         if ([string]::IsNullOrWhiteSpace($path)) { continue }
 
-        $regPath = $path -replace '^HKLM\\', 'HKLM:\' -replace '^HKCU\\', 'HKCU:\' -replace '^HKU\\', 'Registry::HKU\' -replace '^HKCR\\', 'HKCR:\'
+        $regPath = $path -replace '^HKLM\\', 'HKLM:\' -replace '^HKCU\\', 'HKCU:\' `
+                         -replace '^HKU\\', 'Registry::HKU\' -replace '^HKCR\\', 'HKCR:\'
         $valueName = if ($Action.value -eq '') { '(Default)' } else { $Action.value }
 
-        $isOptional = $path -match 'AME_UserHive_Default|HKCR|StorageSense|GameDVR|QuickAction|RunOnce|ShellNew|PropertyBag|MulticastDNS|powerscheme|\.pow|TrustedInstaller'
-        $isConfigDependent = $valueName -match 'browser|TargetReleaseVersion|ExecutionPolicy|SettingsPageVisibility|UserPreferencesMask|ThisPCPolicy|ThemeFile|verbosestatus|AutoEndTasks'
+        $isOptional = $path -match 'AME_UserHive_Default|HKCR|StorageSense|GameDVR|GameBar|QuickAction|RunOnce|ShellNew|PropertyBag|powerscheme|\.pow|TrustedInstaller|PolicyManager|DNSClient|PreviousVersions|Siuf'
+        $isConfigDependent = $valueName -match 'browser|TargetReleaseVersion|ExecutionPolicy|SettingsPageVisibility|UserPreferencesMask|ThisPCPolicy|ThemeFile|verbosestatus|AutoEndTasks|Toggles|PeriodInNanoSeconds|NoPreviousVersionsPage'
+        $isDeleteOperation = $Action.operation -eq 'delete'
 
         if (!(Test-Path $regPath -EA 0)) {
+            if ($isDeleteOperation) {
+                Add-Result -Category 'Registry' -Status 'PASS' -Source $FileName -Item "$regPath\$valueName" `
+                    -Expected "Value deleted" -Actual "Path not found" -Details 'Deletion successful (path removed)'
+                continue
+            }
             $status = if ($isOptional) { 'WARN' } else { 'FAIL' }
-            $details = if ($isOptional) { 'Optional path (expected to not exist)' } else { 'Path does not exist' }
-            Add-Result -Category 'Registry' -Status $status -Source $FileName -Item "$regPath\$valueName" -Expected "Path exists" -Actual "Path missing" -Details $details
-            return
+            $details = if ($isOptional) { 'Optional path (expected to not exist on some systems)' } else { 'Path does not exist' }
+            Add-Result -Category 'Registry' -Status $status -Source $FileName -Item "$regPath\$valueName" `
+                -Expected "Path exists" -Actual "Path missing" -Details $details
+            continue
         }
 
         try {
@@ -132,10 +189,24 @@ function Test-RegistryAction {
                 $currentValue = $regItem.$valueName
             }
         } catch {
-            $status = if ($isOptional) { 'WARN' } else { 'FAIL' }
-            $details = if ($isOptional) { 'Optional value (expected to not exist)' } else { "Value not found: $($_.Exception.Message)" }
-            Add-Result -Category 'Registry' -Status $status -Source $FileName -Item "$regPath\$valueName" -Expected "Value: $($Action.data)" -Actual "NOT SET" -Details $details
-            return
+            if ($isDeleteOperation) {
+                Add-Result -Category 'Registry' -Status 'PASS' -Source $FileName -Item "$regPath\$valueName" `
+                    -Expected "Value deleted" -Actual "NOT SET" -Details 'Deletion successful'
+                continue
+            }
+            $status = if ($isOptional -or $isConfigDependent) { 'WARN' } else { 'FAIL' }
+            $details = if ($isOptional) { 'Optional value (may not exist on some systems)' } `
+                       elseif ($isConfigDependent) { 'Config-dependent value (may not be set)' } `
+                       else { "Value not found: $($_.Exception.Message)" }
+            Add-Result -Category 'Registry' -Status $status -Source $FileName -Item "$regPath\$valueName" `
+                -Expected "Value: $($Action.data)" -Actual "NOT SET" -Details $details
+            continue
+        }
+
+        if ($isDeleteOperation) {
+            Add-Result -Category 'Registry' -Status 'FAIL' -Source $FileName -Item "$regPath\$valueName" `
+                -Expected "Value deleted" -Actual "Value exists: $currentValue" -Details 'Deletion failed - value still present'
+            continue
         }
 
         $valuesMatch = Compare-RegistryValue -Expected $Action.data -Actual $currentValue
@@ -145,23 +216,75 @@ function Test-RegistryAction {
             $details = if ($isConfigDependent) { 'Config-dependent value (may vary based on user choice)' } else { 'Value mismatch' }
             $expectedStr = if ($Action.data) { $Action.data } else { '(empty)' }
             $actualStr = if ($currentValue) { $currentValue } else { '(empty)' }
-            Add-Result -Category 'Registry' -Status $status -Source $FileName -Item "$regPath\$valueName" -Expected $expectedStr -Actual $actualStr -Details $details
+            Add-Result -Category 'Registry' -Status $status -Source $FileName -Item "$regPath\$valueName" `
+                -Expected $expectedStr -Actual $actualStr -Details $details
         } else {
-            Add-Result -Category 'Registry' -Status 'PASS' -Source $FileName -Item "$regPath\$valueName" -Expected $Action.data -Actual $currentValue -Details 'Exact match'
+            Add-Result -Category 'Registry' -Status 'PASS' -Source $FileName -Item "$regPath\$valueName" `
+                -Expected $Action.data -Actual $currentValue -Details 'Exact match'
         }
     }
 }
 
-function Test-ServiceAction {
+function Test-RegistryKey {
+    param($Action, $FileName)
+
+    if ($null -eq $Action.path) { return }
+
+    if (!(Test-BuildFilter $Action.builds)) {
+        Add-Result -Category 'Registry' -Status 'SKIP' -Source $FileName -Item $Action.path `
+            -Expected "Skipped" -Actual "Build $global:currentBuild" `
+            -Details "Not applicable to current build (requires: $($Action.builds -join ', '))"
+        return
+    }
+
+    $regPath = $Action.path -replace '^HKLM\\', 'HKLM:\' -replace '^HKCU\\', 'HKCU:\' `
+                             -replace '^HKU\\', 'Registry::HKU\' -replace '^HKCR\\', 'HKCR:\'
+
+    $operation = if ($Action.operation) { $Action.operation } else { 'delete' }
+
+    $keyExists = Test-Path $regPath -EA 0
+
+    if ($operation -eq 'delete') {
+        if ($keyExists) {
+            Add-Result -Category 'Registry' -Status 'FAIL' -Source $FileName -Item $regPath `
+                -Expected "Key deleted" -Actual "Key exists" -Details 'Key should be deleted'
+        } else {
+            Add-Result -Category 'Registry' -Status 'PASS' -Source $FileName -Item $regPath `
+                -Expected "Key deleted" -Actual "Key not found" -Details 'Deletion successful'
+        }
+    } elseif ($operation -eq 'add') {
+        if ($keyExists) {
+            Add-Result -Category 'Registry' -Status 'PASS' -Source $FileName -Item $regPath `
+                -Expected "Key exists" -Actual "Key found" -Details 'Key created successfully'
+        } else {
+            Add-Result -Category 'Registry' -Status 'FAIL' -Source $FileName -Item $regPath `
+                -Expected "Key exists" -Actual "Key not found" -Details 'Key should exist'
+        }
+    }
+}
+
+function Test-Service {
     param($Action, $FileName)
 
     if ($null -eq $Action.name) { return }
 
+    if (!(Test-CpuArchFilter $Action.cpuArch)) {
+        Add-Result -Category 'Service' -Status 'SKIP' -Source $FileName -Item $Action.name `
+            -Expected "Skipped" -Actual "Arch $global:currentArch" `
+            -Details "Not applicable to current architecture (requires: $($Action.cpuArch))"
+        return
+    }
+
     $serviceName = $Action.name
     $service = Get-Service -Name $serviceName -EA 0
 
+    $isLegacyService = $serviceName -match 'diagnosticshub\.standardcollector|GpuEnergyDrv|Telemetry'
+
     if (!$service) {
-        Add-Result -Category 'Service' -Status 'FAIL' -Source $FileName -Item $serviceName -Expected "Service exists" -Actual "Service not found" -Details "Service does not exist"
+        $status = if ($isLegacyService) { 'WARN' } else { 'FAIL' }
+        $details = if ($isLegacyService) { 'Legacy service (may not exist on Windows 11 24H2+)' } else { 'Service does not exist' }
+        Add-Result -Category 'Service' -Status $status -Source $FileName -Item $serviceName `
+            -Expected "Service exists" -Actual "Service not found" -Details $details
         return
     }
 
@@ -178,80 +301,116 @@ function Test-ServiceAction {
         $actualStartup = $service.StartType
 
         if ($actualStartup -ne $expectedStartup) {
-            Add-Result -Category 'Service' -Status 'FAIL' -Source $FileName -Item $serviceName -Expected "StartType: $expectedStartup" -Actual "StartType: $actualStartup" -Details "Service startup type mismatch"
+            Add-Result -Category 'Service' -Status 'FAIL' -Source $FileName -Item $serviceName `
+                -Expected "StartType: $expectedStartup" -Actual "StartType: $actualStartup" -Details "Service startup type mismatch"
         } else {
-            Add-Result -Category 'Service' -Status 'PASS' -Source $FileName -Item $serviceName -Expected $expectedStartup -Actual $actualStartup -Details 'Startup type matches'
+            Add-Result -Category 'Service' -Status 'PASS' -Source $FileName -Item $serviceName `
+                -Expected $expectedStartup -Actual $actualStartup -Details 'Startup type matches'
         }
     }
 
     if ($Action.operation -eq 'stop') {
         if ($service.Status -ne 'Stopped') {
-            Add-Result -Category 'Service' -Status 'FAIL' -Source $FileName -Item $serviceName -Expected "Status: Stopped" -Actual "Status: $($service.Status)" -Details "Service should be stopped"
+            Add-Result -Category 'Service' -Status 'FAIL' -Source $FileName -Item $serviceName `
+                -Expected "Status: Stopped" -Actual "Status: $($service.Status)" -Details "Service should be stopped"
         } else {
-            Add-Result -Category 'Service' -Status 'PASS' -Source $FileName -Item $serviceName -Expected 'Stopped' -Actual $service.Status -Details 'Service is stopped'
+            Add-Result -Category 'Service' -Status 'PASS' -Source $FileName -Item $serviceName `
+                -Expected 'Stopped' -Actual $service.Status -Details 'Service is stopped'
         }
     }
 }
 
-function Test-ScheduledTaskAction {
+function Test-ScheduledTask {
     param($Action, $FileName)
 
     if ($null -eq $Action.path) { return }
 
     $taskPath = $Action.path
-    $task = Get-ScheduledTask -TaskPath $taskPath -EA 0
+    $task = Get-ScheduledTask -TaskName (Split-Path $taskPath -Leaf) -EA 0 |
+            Where-Object { $_.TaskPath -like "*$(Split-Path $taskPath -Parent)*" }
+
+    $ignoreErrors = $Action.ignoreErrors -eq $true
 
     if ($Action.operation -eq 'delete') {
         if ($task) {
-            Add-Result -Category 'ScheduledTask' -Status 'FAIL' -Source $FileName -Item $taskPath -Expected "Task deleted" -Actual "Task still exists" -Details "Scheduled task should be deleted"
+            Add-Result -Category 'ScheduledTask' -Status 'FAIL' -Source $FileName -Item $taskPath `
+                -Expected "Task deleted" -Actual "Task still exists" -Details "Scheduled task should be deleted"
         } else {
-            Add-Result -Category 'ScheduledTask' -Status 'PASS' -Source $FileName -Item $taskPath -Expected 'Deleted' -Actual 'Not found' -Details 'Task deleted successfully'
+            Add-Result -Category 'ScheduledTask' -Status 'PASS' -Source $FileName -Item $taskPath `
+                -Expected 'Deleted' -Actual 'Not found' -Details 'Task deleted successfully'
         }
-    } elseif ($Action.state -eq 'disabled') {
+    } elseif ($Action.operation -eq 'disable') {
         if (!$task) {
-            Add-Result -Category 'ScheduledTask' -Status 'SKIP' -Source $FileName -Item $taskPath -Expected "Task disabled" -Actual "Task not found" -Details "Task does not exist"
+            $status = if ($ignoreErrors) { 'SKIP' } else { 'WARN' }
+            $details = if ($ignoreErrors) { 'Task does not exist (ignoreErrors: true)' } else { 'Task does not exist'  }
+            Add-Result -Category 'ScheduledTask' -Status $status -Source $FileName -Item $taskPath `
+                -Expected "Task disabled" -Actual "Task not found" -Details $details
         } elseif ($task.State -ne 'Disabled') {
-            Add-Result -Category 'ScheduledTask' -Status 'FAIL' -Source $FileName -Item $taskPath -Expected "State: Disabled" -Actual "State: $($task.State)" -Details "Task should be disabled"
+            Add-Result -Category 'ScheduledTask' -Status 'FAIL' -Source $FileName -Item $taskPath `
+                -Expected "State: Disabled" -Actual "State: $($task.State)" -Details "Task should be disabled"
         } else {
-            Add-Result -Category 'ScheduledTask' -Status 'PASS' -Source $FileName -Item $taskPath -Expected 'Disabled' -Actual $task.State -Details 'Task is disabled'
+            Add-Result -Category 'ScheduledTask' -Status 'PASS' -Source $FileName -Item $taskPath `
+                -Expected 'Disabled' -Actual $task.State -Details 'Task is disabled'
+        }
+    } elseif ($Action.operation -eq 'enable') {
+        if (!$task) {
+            Add-Result -Category 'ScheduledTask' -Status 'FAIL' -Source $FileName -Item $taskPath `
+                -Expected "Task enabled" -Actual "Task not found" -Details "Task does not exist"
+        } elseif ($task.State -eq 'Disabled') {
+            Add-Result -Category 'ScheduledTask' -Status 'FAIL' -Source $FileName -Item $taskPath `
+                -Expected "State: Ready/Running" -Actual "State: Disabled" -Details "Task should be enabled"
+        } else {
+            Add-Result -Category 'ScheduledTask' -Status 'PASS' -Source $FileName -Item $taskPath `
+                -Expected 'Enabled' -Actual $task.State -Details 'Task is enabled'
         }
     }
 }
 
-function Test-FileAction {
+function Test-File {
     param($Action, $FileName)
 
     if ($null -eq $Action.path) { return }
 
-    $filePath = $Action.path
+    if (!(Test-CpuArchFilter $Action.cpuArch)) {
+        Add-Result -Category 'File' -Status 'SKIP' -Source $FileName -Item $Action.path `
+            -Expected "Skipped" -Actual "Arch $global:currentArch" `
+            -Details "Not applicable to current architecture (requires: $($Action.cpuArch))"
+        return
+    }
 
-    if ($Action.operation -eq 'delete') {
-        if (Test-Path $filePath -EA 0) {
-            Add-Result -Category 'File' -Status 'FAIL' -Source $FileName -Item $filePath -Expected "File deleted" -Actual "File exists" -Details "File should be deleted"
-        } else {
-            Add-Result -Category 'File' -Status 'PASS' -Source $FileName -Item $filePath -Expected 'Deleted' -Actual 'Not found' -Details 'File deleted successfully'
-        }
-    } elseif ($Action.operation -eq 'copy' -or $null -ne $Action.content) {
-        if (!(Test-Path $filePath -EA 0)) {
-            Add-Result -Category 'File' -Status 'FAIL' -Source $FileName -Item $filePath -Expected "File exists" -Actual "File not found" -Details "File should exist"
-        } else {
-            Add-Result -Category 'File' -Status 'PASS' -Source $FileName -Item $filePath -Expected 'Exists' -Actual 'Found' -Details 'File exists'
-        }
+    $filePath = [System.Environment]::ExpandEnvironmentVariables($Action.path)
+
+    if (Test-Path $filePath -EA 0) {
+        Add-Result -Category 'File' -Status 'FAIL' -Source $FileName -Item $filePath `
+            -Expected "File/folder deleted" -Actual "File/folder exists" -Details "Should be deleted"
+    } else {
+        Add-Result -Category 'File' -Status 'PASS' -Source $FileName -Item $filePath `
+            -Expected 'Deleted' -Actual 'Not found' -Details 'Deletion successful'
     }
 }
 
-function Test-AppxAction {
+function Test-Appx {
     param($Action, $FileName)
 
     if ($null -eq $Action.name) { return }
 
     $appxName = $Action.name
+
+    if ($Action.operation -eq 'clearCache') {
+        Add-Result -Category 'Appx' -Status 'SKIP' -Source $FileName -Item $appxName `
+            -Expected "Cache cleared" -Actual "N/A" -Details "AppX cache operation (cannot verify)"
+        return
+    }
+
     $appxPackages = Get-AppxPackage -Name $appxName -EA 0
 
     if ($appxPackages) {
-        Add-Result -Category 'Appx' -Status 'WARN' -Source $FileName -Item $appxName -Expected "Package removed" -Actual "Package found: $($appxPackages.Count)" -Details "AppX package still installed (may reinstall on update)"
+        Add-Result -Category 'Appx' -Status 'WARN' -Source $FileName -Item $appxName `
+            -Expected "Package removed" -Actual "Package found: $($appxPackages.Count)" `
+            -Details "AppX package still installed (may reinstall after Windows updates)"
     } else {
-        Add-Result -Category 'Appx' -Status 'PASS' -Source $FileName -Item $appxName -Expected 'Removed' -Actual 'Not found' -Details 'AppX package removed'
+        Add-Result -Category 'Appx' -Status 'PASS' -Source $FileName -Item $appxName `
+            -Expected 'Removed' -Actual 'Not found' -Details 'AppX package removed'
     }
 }
 
@@ -259,7 +418,8 @@ try {
     Write-Header "Atlas Installation Verification Tool"
     Write-Output "Started: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
     Write-Output "System: $([System.Environment]::OSVersion.VersionString)"
-    Write-Output "Build: $([System.Environment]::OSVersion.Version.Build)"
+    Write-Output "Build: $global:currentBuild"
+    Write-Output "Architecture: $global:currentArch"
 
     $module = Get-Module -Name "FXPSYaml"
     if (!$module) {
@@ -291,28 +451,39 @@ try {
             if ($null -eq $parsedYaml) { continue }
 
             foreach ($entry in $parsedYaml) {
-                if ($null -eq $entry -or $null -eq $entry.actions) { continue }
+                if ($null -eq $entry) { continue }
+
+                if ($entry.builds -and !(Test-BuildFilter $entry.builds)) {
+                    continue
+                }
+
+                if ($null -eq $entry.actions) { continue }
 
                 foreach ($action in $entry.actions) {
                     if ($null -eq $action) { continue }
 
-                    $actionType = $action.PSObject.TypeNames | Where-Object { $_ -match 'registryValue|service|scheduledTask|file|appx' } | Select-Object -First 1
+                    $actionType = $action.PSObject.TypeNames |
+                        Where-Object { $_ -match 'registryValue|registryKey|service|scheduledTask|file|appx' } |
+                        Select-Object -First 1
 
-                    if ($null -ne $action.path -and $null -ne $action.value) {
-                        Test-RegistryAction -Action $action -FileName $yamlFile.Name
-                    } elseif ($null -ne $action.name -and ($actionType -match 'service' -or $null -ne $action.startup)) {
-                        Test-ServiceAction -Action $action -FileName $yamlFile.Name
-                    } elseif ($null -ne $action.path -and ($actionType -match 'scheduledTask' -or $null -ne $action.state)) {
-                        Test-ScheduledTaskAction -Action $action -FileName $yamlFile.Name
-                    } elseif ($null -ne $action.path -and $actionType -match 'file') {
-                        Test-FileAction -Action $action -FileName $yamlFile.Name
-                    } elseif ($null -ne $action.name -and $actionType -match 'appx') {
-                        Test-AppxAction -Action $action -FileName $yamlFile.Name
+                    if ($actionType -match 'registryValue' -or ($null -ne $action.path -and $null -ne $action.value -and $null -ne $action.data)) {
+                        Test-RegistryValue -Action $action -FileName $yamlFile.Name
+                    } elseif ($actionType -match 'registryKey' -or ($null -ne $action.path -and $null -ne $action.operation -and $action.operation -match 'add|delete')) {
+                        Test-RegistryKey -Action $action -FileName $yamlFile.Name
+                    } elseif ($actionType -match 'service' -or ($null -ne $action.name -and $null -ne $action.startup)) {
+                        Test-Service -Action $action -FileName $yamlFile.Name
+                    } elseif ($actionType -match 'scheduledTask' -or ($null -ne $action.path -and $null -ne $action.operation -and $action.operation -match 'enable|disable|delete')) {
+                        Test-ScheduledTask -Action $action -FileName $yamlFile.Name
+                    } elseif ($actionType -match 'file' -or ($null -ne $action.path -and $null -ne $action.cpuArch)) {
+                        Test-File -Action $action -FileName $yamlFile.Name
+                    } elseif ($actionType -match 'appx' -or ($null -ne $action.name -and ($null -ne $action.type -or $null -ne $action.operation))) {
+                        Test-Appx -Action $action -FileName $yamlFile.Name
                     }
                 }
             }
         } catch {
-            Add-Result -Category 'Registry' -Status 'SKIP' -Source $yamlFile.Name -Item 'File parsing' -Expected 'Valid YAML' -Actual 'Parse error' -Details $_.Exception.Message
+            Add-Result -Category 'Registry' -Status 'SKIP' -Source $yamlFile.Name -Item 'File parsing' `
+                -Expected 'Valid YAML' -Actual 'Parse error' -Details $_.Exception.Message
         }
     }
 
@@ -325,7 +496,8 @@ try {
     $output.Add("=" * 80)
     $output.Add("Generated: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')")
     $output.Add("System: $([System.Environment]::OSVersion.VersionString)")
-    $output.Add("Build: $([System.Environment]::OSVersion.Version.Build)")
+    $output.Add("Build: $global:currentBuild")
+    $output.Add("Architecture: $global:currentArch")
     $output.Add("")
 
     $output.Add("=" * 80)
@@ -396,7 +568,7 @@ try {
 
     $allChecks = @()
     foreach ($category in $categories) {
-        $allChecks += $global:results."${category}Checks"
+        $allChecks += $global:results."${Category}Checks"
     }
 
     $groupedBySource = $allChecks | Group-Object Source | Sort-Object Name
