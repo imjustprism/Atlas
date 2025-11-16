@@ -466,9 +466,9 @@ try {
                         Where-Object { $_ -match 'registryValue|registryKey|service|scheduledTask|file|appx' } |
                         Select-Object -First 1
 
-                    if ($actionType -match 'registryValue' -or ($null -ne $action.path -and $null -ne $action.value -and $null -ne $action.data)) {
+                    if ($actionType -match 'registryValue' -or ($null -ne $action.path -and $null -ne $action.value)) {
                         Test-RegistryValue -Action $action -FileName $yamlFile.Name
-                    } elseif ($actionType -match 'registryKey' -or ($null -ne $action.path -and $null -ne $action.operation -and $action.operation -match 'add|delete')) {
+                    } elseif ($actionType -match 'registryKey' -or ($null -ne $action.path -and $null -ne $action.operation -and $action.operation -match 'add|delete' -and $null -eq $action.value)) {
                         Test-RegistryKey -Action $action -FileName $yamlFile.Name
                     } elseif ($actionType -match 'service' -or ($null -ne $action.name -and $null -ne $action.startup)) {
                         Test-Service -Action $action -FileName $yamlFile.Name
