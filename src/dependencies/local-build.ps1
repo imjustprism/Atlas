@@ -3,6 +3,7 @@ Param(
     [switch]$ReplaceOldPlaybook,
     [switch]$DontOpenPbLocation,
     [switch]$NoPassword,
+    [switch]$VerifyScripts,
     [ValidateSet('Dependencies', 'Requirements', 'WinverRequirement', 'Verification', IgnoreCase = $true)]
     [string[]]$Removals,
     [string]$FileName = 'Atlas Test'
@@ -514,6 +515,22 @@ try {
     if (Test-Path -LiteralPath $apbxTmpPath) {
         Remove-Item -LiteralPath $apbxPath -Force -ErrorAction SilentlyContinue
         Rename-Item -LiteralPath $apbxTmpPath -NewName (Split-Path -Path $apbxPath -Leaf)
+    }
+
+    if ($VerifyScripts) {
+        Write-Host "`nRunning verification script..." -ForegroundColor Cyan
+        $verifyScriptPath = Join-Path -Path $workingDirectory -ChildPath 'Executables\ATLAS-VERIFY.ps1'
+        if (Test-Path -LiteralPath $verifyScriptPath) {
+            try {
+                & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $verifyScriptPath
+            }
+            catch {
+                Write-Warning "Verification script failed: $($_.Exception.Message)"
+            }
+        }
+        else {
+            Write-Warning "Verification script not found at: $verifyScriptPath"
+        }
     }
 
     if ($buildStopwatch.IsRunning) {
