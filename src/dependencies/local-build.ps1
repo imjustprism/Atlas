@@ -379,6 +379,36 @@ try {
         }
     }
 
+    if (-not $VerifyScripts) {
+        if (Test-Path -LiteralPath $customYmlRelativePath -PathType Leaf) {
+            $playbookTempPath = Get-PlaybookTempPath
+            $tempCustomYmlPath = Join-Path -Path $playbookTempPath -ChildPath $customYmlRelativePath
+
+            if (-not $stagedCustomYml) {
+                Set-ParentDirectory -Path $tempCustomYmlPath
+                Copy-Item -Path $customYmlRelativePath -Destination $tempCustomYmlPath -Force
+            }
+
+            $customYmlContent = Get-Content -Path $tempCustomYmlPath -Raw -Encoding UTF8
+            $verifyPattern = '  # Verify all registry modifications.*?runas: currentUserElevated\s*'
+            $updatedCustomYml = [regex]::Replace($customYmlContent, $verifyPattern, '', 'Singleline')
+
+            if ($updatedCustomYml -ne $customYmlContent) {
+                Set-Content -Path $tempCustomYmlPath -Value $updatedCustomYml -Encoding UTF8
+                $stagedCustomYml = $true
+            }
+            else {
+                Write-Warning "Could not find verification section in '$customYmlRelativePath'."
+                if (-not $stagedCustomYml) {
+                    Remove-Item -LiteralPath $tempCustomYmlPath -Force -ErrorAction SilentlyContinue
+                }
+            }
+        }
+        else {
+            Write-Warning "Can't find '$customYmlRelativePath', not removing verification."
+        }
+    }
+
     $startYmlRelativePath = Join-Path -Path (Join-Path -Path 'Configuration' -ChildPath 'atlas') -ChildPath 'start.yml'
     # clone start.yml when we strip the dependency block for local builds
     $stagedStartYml = $false
@@ -515,22 +545,6 @@ try {
     if (Test-Path -LiteralPath $apbxTmpPath) {
         Remove-Item -LiteralPath $apbxPath -Force -ErrorAction SilentlyContinue
         Rename-Item -LiteralPath $apbxTmpPath -NewName (Split-Path -Path $apbxPath -Leaf)
-    }
-
-    if ($VerifyScripts) {
-        Write-Host "`nRunning verification script..." -ForegroundColor Cyan
-        $verifyScriptPath = Join-Path -Path $workingDirectory -ChildPath 'Executables\ATLAS-VERIFY.ps1'
-        if (Test-Path -LiteralPath $verifyScriptPath) {
-            try {
-                & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $verifyScriptPath
-            }
-            catch {
-                Write-Warning "Verification script failed: $($_.Exception.Message)"
-            }
-        }
-        else {
-            Write-Warning "Verification script not found at: $verifyScriptPath"
-        }
     }
 
     if ($buildStopwatch.IsRunning) {

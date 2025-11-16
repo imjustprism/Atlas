@@ -166,6 +166,7 @@ function Test-RegistryValue {
         $isOptional = $path -match 'AME_UserHive_Default|HKCR|StorageSense|GameDVR|GameBar|QuickAction|RunOnce|ShellNew|PropertyBag|powerscheme|\.pow|TrustedInstaller|PolicyManager|DNSClient|PreviousVersions|Siuf'
         $isConfigDependent = $valueName -match 'browser|TargetReleaseVersion|ExecutionPolicy|SettingsPageVisibility|UserPreferencesMask|ThisPCPolicy|ThemeFile|verbosestatus|AutoEndTasks|Toggles|PeriodInNanoSeconds|NoPreviousVersionsPage'
         $isDeleteOperation = $Action.operation -eq 'delete'
+        $ignoreErrors = $Action.ignoreErrors -eq $true
 
         if (!(Test-Path $regPath -EA 0)) {
             if ($isDeleteOperation) {
@@ -204,8 +205,10 @@ function Test-RegistryValue {
         }
 
         if ($isDeleteOperation) {
-            Add-Result -Category 'Registry' -Status 'FAIL' -Source $FileName -Item "$regPath\$valueName" `
-                -Expected "Value deleted" -Actual "Value exists: $currentValue" -Details 'Deletion failed - value still present'
+            $status = if ($ignoreErrors) { 'SKIP' } else { 'FAIL' }
+            $details = if ($ignoreErrors) { 'Deletion failed but ignoreErrors is set' } else { 'Deletion failed - value still present' }
+            Add-Result -Category 'Registry' -Status $status -Source $FileName -Item "$regPath\$valueName" `
+                -Expected "Value deleted" -Actual "Value exists: $currentValue" -Details $details
             continue
         }
 

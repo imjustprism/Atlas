@@ -38,7 +38,7 @@ if "%~1"=="/start" (
     %___settings% /unhide cortana-windowssearch
 
     echo Updating policy... ^(this might take a moment^)
-    gpupdate > nul
+    gpupdate /target:computer > nul 2>&1
 )
 
 if "%~1"=="/stop" (
@@ -47,8 +47,8 @@ if "%~1"=="/stop" (
     %___settings% /hide cortana-windowssearch
 
     rem Kill the search index Control Panel pane
-    powershell -NoP -NonI -C "Stop-Process -Id (gcim Win32_Process | ? { $_.CommandLine -match 'srchadmin.dll' }).ProcessId -Force"
-    
+    powershell -NoP -NonI -W Hidden -C "Stop-Process -Id (gcim Win32_Process | ? { $_.CommandLine -match 'srchadmin.dll' }).ProcessId -Force" 2>nul
+
     sc config WSearch start=disabled > nul
     sc stop WSearch > nul 2>&1
 )

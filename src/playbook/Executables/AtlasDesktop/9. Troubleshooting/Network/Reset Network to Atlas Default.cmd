@@ -25,8 +25,8 @@ reg add "HKLM\SOFTWARE\AtlasOS\Services\%settingName%" /v path /t REG_SZ /d "%sc
 echo Setting network settings to Atlas defaults...
 
 :: Set network adapter driver registry key
-for /f "usebackq" %%a in (`powershell -NonI -NoP -C "(Get-CimInstance Win32_NetworkAdapter).PNPDeviceID | sls 'PCI\\VEN_'"`) do (
-	for /f "tokens=3" %%b in ('reg query "HKLM\SYSTEM\CurrentControlSet\Enum\%%a" /v "Driver"') do ( 
+for /f "usebackq" %%a in (`powershell -NonI -NoP -W Hidden -C "(Get-CimInstance Win32_NetworkAdapter).PNPDeviceID | sls 'PCI\\VEN_'" 2^>nul`) do (
+	for /f "tokens=3" %%b in ('reg query "HKLM\SYSTEM\CurrentControlSet\Enum\%%a" /v "Driver" 2^>nul') do (
         set "netKey=HKLM\SYSTEM\CurrentControlSet\Control\Class\%%b"
     ) > nul 2>&1
 )
