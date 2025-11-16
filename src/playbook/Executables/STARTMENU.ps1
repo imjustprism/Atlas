@@ -10,32 +10,35 @@ foreach ($userKey in (Get-RegUserPaths).PsPath) {
     } else {
         (Get-ItemProperty "$userKey\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders" -Name 'Local AppData' -EA 0).'Local AppData'
     }
-    
+
     Write-Title "Configuring Start Menu for '$sid'..."
     if ([string]::IsNullOrEmpty($appData) -or !(Test-Path $appData)) {
         Write-Error "Couldn't find AppData value for $sid!"
     } else {
         Write-Output "Copying default layout XML"
-        Copy-Item -Path "Layout.xml" -Destination "$appdata\Microsoft\Windows\Shell\LayoutModification.xml" -Force
-        
+        $layoutPath = "$appdata\Microsoft\Windows\Shell"
+        if (!(Test-Path $layoutPath)) {
+            New-Item -Path $layoutPath -ItemType Directory -Force | Out-Null
+        }
+        Copy-Item -Path "Layout.xml" -Destination "$layoutPath\LayoutModification.xml" -Force
+
         if (!$default) {
             Write-Output "Clearing Start Menu pinned items"
-
-            $packages = Get-ChildItem -Path "$appdata\Packages" -Directory | Where-Object { $_.Name -match "Microsoft.Windows.StartMenuExperienceHost" }
+            $packages = Get-ChildItem -Path "$appdata\Packages" -Directory -Filter "*StartMenuExperienceHost*" -EA 0
             foreach ($package in $packages) {
-                $bins = Get-ChildItem -Path "$appdata\Packages\$($package.Name)\LocalState" -File | Where-Object { $_.Name -like "start*.bin" }
-                foreach ($bin in $bins.FullName) {
-                    Remove-Item -Path $bin -Force
+                $bins = Get-ChildItem -Path "$appdata\Packages\$($package.Name)\LocalState" -Filter "start*.bin" -File -EA 0
+                if ($bins) {
+                    Remove-Item -Path $bins.FullName -Force -EA 0
                 }
             }
         }
     }
-    
+
     if (!$default) {
         Write-Output "Clearing default 'tilegrid'"
-        $tilegrid = Get-ChildItem -Path "$userKey\SOFTWARE\Microsoft\Windows\CurrentVersion\CloudStore\Store\Cache\DefaultAccount" -Recurse | Where-Object { $_.Name -match "start.tilegrid" }    
-        foreach ($key in $tilegrid) {
-            Remove-Item -Path $key.PSPath -Force
+        $cloudStorePath = "$userKey\SOFTWARE\Microsoft\Windows\CurrentVersion\CloudStore\Store\Cache\DefaultAccount"
+        if (Test-Path $cloudStorePath) {
+            Get-ChildItem -Path $cloudStorePath -Recurse -EA 0 | Where-Object { $_.Name -match "start\.tilegrid" } | Remove-Item -Force -EA 0
         }
     }
 

@@ -24,4 +24,6 @@ $devices = @(
 )
 
 # No errors as some devices may not have an option to be disabled
-Get-PnpDevice -FriendlyName $devices -ErrorAction Ignore | Disable-PnpDevice -Confirm:$false -ErrorAction Ignore
+foreach ($device in $devices) {
+	Get-PnpDevice -FriendlyName $device -EA 0 | Disable-PnpDevice -Confirm:$false -EA 0
+}

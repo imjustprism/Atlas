@@ -49,9 +49,11 @@ function Invoke-AtlasDiskCleanup {
 # Check for other installations of Windows
 # If so, don't cleanup as it will also cleanup other drives, which will be slow, and we don't want to touch other data
 $noCleanmgr = $false
-$drives = (Get-PSDrive -PSProvider FileSystem).Root | Where-Object { $_ -notmatch $(Get-SystemDrive) }
-foreach ($drive in $drives) {
-    if (Test-Path -Path $(Join-Path -Path $drive -ChildPath 'Windows') -PathType Container) {
+$systemDrive = Get-SystemDrive
+$allDrives = [System.IO.DriveInfo]::GetDrives() | Where-Object { $_.DriveType -eq 'Fixed' -and $_.Name -ne $systemDrive }
+foreach ($drive in $allDrives) {
+    $windowsPath = Join-Path -Path $drive.Name -ChildPath 'Windows'
+    if (Test-Path -Path $windowsPath -PathType Container) {
         Write-Output "Not running Disk Cleanup, other Windows drives found."
         $noCleanmgr = $true
         break
@@ -64,37 +66,19 @@ if (!$noCleanmgr) {
 }
 
 # Clear the user temp folder
-foreach ($path in @($env:temp, $env:tmp, "$env:localappdata\Temp")) {
-    if (Test-Path $path -PathType Container) {
-        $userTemp = $path
-        break
-    }
-}
-if ($userTemp) {
+if ($env:temp -and (Test-Path $env:temp -PathType Container)) {
     Write-Output "Cleaning user TEMP folder..."
-    Get-ChildItem -Path $userTemp | Where-Object { $_.Name -ne 'AME' } | Remove-Item -Force -Recurse -EA 0
-}
-else {
+    Get-ChildItem -Path $env:temp -Exclude 'AME' -EA 0 | Remove-Item -Force -Recurse -EA 0
+} else {
     Write-Error "User temp folder not found!"
 }
 
 # Clear the system temp folder
-$machine = [System.EnvironmentVariableTarget]::Machine
-foreach ($path in @(
-        [System.Environment]::GetEnvironmentVariable("Temp", $machine),
-        [System.Environment]::GetEnvironmentVariable("Tmp", $machine),
-        "$([Environment]::GetFolderPath('Windows'))\Temp"
-    )) {
-    if (Test-Path $path -PathType Container) {
-        $sysTemp = $path
-        break
-    }
-}
-if ($sysTemp) {
+$sysTemp = "$([Environment]::GetFolderPath('Windows'))\Temp"
+if (Test-Path $sysTemp -PathType Container) {
     Write-Output "Cleaning system TEMP folder..."
-    Remove-Item -Path "$sysTemp\*" -Force -Recurse -EA 0
-}
-else {
+    Get-ChildItem -Path $sysTemp -EA 0 | Remove-Item -Force -Recurse -EA 0
+} else {
     Write-Error "System temp folder not found!"
 }
 

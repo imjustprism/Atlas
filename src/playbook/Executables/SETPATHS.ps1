@@ -1,22 +1,40 @@
 $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")
 
-if (-not $isAdmin) {
+if (!$isAdmin) {
     Start-Process powershell.exe -Verb RunAs -ArgumentList "-File `"$PSCommandPath`""
     exit
 }
 
 $windir = [Environment]::GetFolderPath('Windows')
-$rootPath = "HKLM:\SOFTWARE\AtlasOS\Services"
-$registryKeys = Get-ChildItem -Path $rootPath -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.PSIsContainer }
+$rootKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey("SOFTWARE\AtlasOS\Services", $true)
+if (!$rootKey) { exit }
 
-$valueName = "path"
-foreach ($key in $registryKeys) {
-    $path = (Get-ItemProperty -Path $key.PSPath -Name $valueName).$valueName
-    Write-Output($path)
-    if ($path -notlike "$windir\AtlasDesktop\*") {
-        $marker = "AtlasDesktop\"
-        $index = $path.IndexOf($marker)
-        $result = $path.Substring($index + $marker.Length)
-        Set-ItemProperty -Path $key.PSPath -Name $valueName -Value "$windir\AtlasDesktop\$result"
-    }
+function Process-Key {
+    param($Key)
+
+    try {
+        $path = $Key.GetValue('path')
+        if ($path) {
+            Write-Output $path
+            if ($path -notlike "$windir\AtlasDesktop\*") {
+                $marker = "AtlasDesktop\"
+                $index = $path.IndexOf($marker)
+                if ($index -ge 0) {
+                    $result = $path.Substring($index + $marker.Length)
+                    $Key.SetValue('path', "$windir\AtlasDesktop\$result")
+                }
+            }
+        }
+
+        foreach ($subKeyName in $Key.GetSubKeyNames()) {
+            $subKey = $Key.OpenSubKey($subKeyName, $true)
+            if ($subKey) {
+                Process-Key $subKey
+                $subKey.Close()
+            }
+        }
+    } catch {}
 }
+
+Process-Key $rootKey
+$rootKey.Close()

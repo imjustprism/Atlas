@@ -5,19 +5,26 @@ param (
 
 if (Test-Path $FilePath) { exit }
 
-$content = [System.Collections.Generic.List[string]]::new()
-$content.Add("Windows Registry Editor Version 5.00")
-Get-ChildItem "HKLM:\SYSTEM\CurrentControlSet\Services" | ForEach-Object {
+$content = [System.Text.StringBuilder]::new()
+[void]$content.AppendLine("Windows Registry Editor Version 5.00")
+
+$servicesKey = [Microsoft.Win32.Registry]::LocalMachine.OpenSubKey("SYSTEM\CurrentControlSet\Services")
+foreach ($serviceName in $servicesKey.GetSubKeyNames()) {
 	try {
-		$values = Get-ItemProperty -Path $_.PSPath -Name 'Start', 'Description' -EA Stop
-		if ($values.Description -notmatch 'Windows Defender') {
-			$content.Add("`n[$($_.Name)]")
-			$content.Add('"Start"=dword:0000000' + $values.Start)	
-		} else {
-			Write-Output "Excluding $($_.Name)..."
+		$serviceKey = $servicesKey.OpenSubKey($serviceName)
+		$start = $serviceKey.GetValue('Start')
+		$description = $serviceKey.GetValue('Description')
+		$serviceKey.Close()
+
+		if ($null -ne $start -and $null -ne $description -and $description -notmatch 'Windows Defender') {
+			[void]$content.AppendLine()
+			[void]$content.AppendLine("[HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\$serviceName]")
+			[void]$content.AppendLine('"Start"=dword:0000000' + $start)
+		} elseif ($description -match 'Windows Defender') {
+			Write-Output "Excluding $serviceName..."
 		}
 	} catch {}
 }
+$servicesKey.Close()
 
-# Set-Content can only do UTF8 with BOM, which doesn't work with reg.exe
-[System.IO.File]::WriteAllLines($FilePath, $content, (New-Object System.Text.UTF8Encoding $false))
+[System.IO.File]::WriteAllText($FilePath, $content.ToString(), (New-Object System.Text.UTF8Encoding $false))

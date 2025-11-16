@@ -119,32 +119,35 @@ $vcredists = [ordered] @{
     "https://aka.ms/vs/17/release/vc_redist.x64.exe"                                                            = @("2015+-x64", $modernArgs)
     "https://aka.ms/vs/17/release/vc_redist.x86.exe"                                                            = @("2015+-x86", $modernArgs)
 }
+Write-Output "Downloading all Visual C++ Runtimes..."
+$downloadJobs = @()
+foreach ($a in $vcredists.GetEnumerator()) {
+    $vcName = $a.Value[0]
+    $vcUrl = $a.Name
+    $vcExePath = "$tempDir\vcredist-$vcName.exe"
+    $downloadJobs += Start-Process -FilePath "curl.exe" -ArgumentList (@("-LSs", $vcUrl, "-o", $vcExePath) + $timeouts) -WindowStyle Hidden -PassThru
+}
+$downloadJobs | Wait-Process
+
+Write-Output "Installing all Visual C++ Runtimes..."
 foreach ($a in $vcredists.GetEnumerator()) {
     $vcName = $a.Value[0]
     $vcArgs = $a.Value[1]
-    $vcUrl = $a.Name
     $vcExePath = "$tempDir\vcredist-$vcName.exe"
-
-    # curl is faster than Invoke-WebRequest
-    Write-Output "Downloading and installing Visual C++ Runtime $vcName..."
-    & curl.exe -LSs "$vcUrl" -o "$vcExePath" $timeouts
 
     if ($vcArgs -match ":") {
         $msiDir = "$tempDir\vcredist-$vcName"
         Start-Process -FilePath $vcExePath -ArgumentList "$vcArgs`"$msiDir`"" -Wait -WindowStyle Hidden
 
         $msiPaths = (Get-ChildItem -Path $msiDir -Filter *.msi -EA 0).FullName
-        if (!$msiPaths) {
-            Write-Output "Failed to extract MSI for $vcName, not installing."
-        }
-        else {
-            $msiPaths | ForEach-Object {
-                Start-Process -FilePath "msiexec.exe" -ArgumentList "/log `"$msiDir\logfile.log`" /i `"$_`" $msiArgs" -WindowStyle Hidden
+        if ($msiPaths) {
+            foreach ($msi in $msiPaths) {
+                Start-Process -FilePath "msiexec.exe" -ArgumentList "/i `"$msi`" $msiArgs" -WindowStyle Hidden -Wait
             }
         }
     }
     else {
-        Start-Process -FilePath $vcExePath -ArgumentList $vcArgs -Wait -WindowStyle Hidden
+        Start-Process -FilePath $vcExePath -ArgumentList $vcArgs -WindowStyle Hidden -Wait
     }
 }
 

@@ -1,42 +1,59 @@
 # Load DefaultUser hive
+$ErrorActionPreference = 'Stop'
+
 $module = Get-Module -Name "FXPSYaml"
 if (!$module) {
-    Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force
-    Install-Module -Name FXPSYaml -Force
+    Install-PackageProvider -Name NuGet -MinimumVersion 2.8.5.201 -Force | Out-Null
+    Install-Module -Name FXPSYaml -Force | Out-Null
     Import-Module -Name FXPSYaml
 }
+
 $configurationFolder = Join-Path $PSScriptRoot "..\Configuration\tweaks"
 $yamlFiles = Get-ChildItem -Path $configurationFolder -Filter *.yml -Recurse
-$RegistryPaths = @()
+$registryPaths = [System.Collections.Generic.HashSet[string]]::new()
+
 foreach ($yamlFile in $yamlFiles) {
     $yamlContent = Get-Content $yamlFile.FullName -Raw
     $parsedYaml = ConvertFrom-Yaml $yamlContent
+
     foreach ($entry in $parsedYaml) {
-        foreach ($value in $entry.actions.path) {
-            if ($value -like 'HKCU') {
-                if (!$RegistryPaths.Contains($value.Substring(4))) { $RegistryPaths += $value.Substring(4) }
+        if (!$entry.actions) { continue }
+
+        foreach ($action in $entry.actions) {
+            if (!$action.path) { continue }
+
+            $paths = if ($action.path -is [array]) { $action.path } else { @($action.path) }
+            foreach ($path in $paths) {
+                if ($path -like 'HKCU*') {
+                    [void]$registryPaths.Add($path.Substring(4))
+                }
             }
         }
     }
 }
 
-foreach ($path in $RegistryPaths) {
+foreach ($path in $registryPaths) {
     $source = "Registry::HKCU\$path"
     $destination = "Registry::HKU\AME_UserHive_Default\$path"
-    $values = Get-ItemProperty -Path $source -ErrorAction SilentlyContinue
-    if ($values) {
-        foreach ($property in $values.PSObject.Properties) {
-            if ($property.Name -ne "PSPath" -and $property.Name -ne "PSParentPath" -and $property.Name -ne "PSChildName" -and $property.Name -ne "PSDrive" -and $property.Name -ne "PSProvider") {
-                if (-not (Test-Path $destination)) {
-                    New-Item -Path $destination -Force | Out-Null
-                }
-                if (-not ((Get-ItemProperty $destination -ErrorAction SilentlyContinue).PSObject.Properties.Name -contains $property.Name)) {
-                    New-ItemProperty -Path $destination -Name $property.Name -Value $property.Value | Out-Null
-                }
-                else {
-                    Set-ItemProperty -Path $destination -Name $property.Name -Value $property.Value
-                }
-            }
+
+    $values = Get-ItemProperty -Path $source -EA 0
+    if (!$values) { continue }
+
+    $propertyNames = $values.PSObject.Properties.Name | Where-Object { $_ -notin @("PSPath", "PSParentPath", "PSChildName", "PSDrive", "PSProvider") }
+
+    if (!(Test-Path $destination)) {
+        New-Item -Path $destination -Force | Out-Null
+    }
+
+    $existingProperties = (Get-ItemProperty $destination -EA 0).PSObject.Properties.Name
+
+    foreach ($propertyName in $propertyNames) {
+        $value = $values.$propertyName
+
+        if ($existingProperties -contains $propertyName) {
+            Set-ItemProperty -Path $destination -Name $propertyName -Value $value -EA 0
+        } else {
+            New-ItemProperty -Path $destination -Name $propertyName -Value $value -EA 0 | Out-Null
         }
     }
 }

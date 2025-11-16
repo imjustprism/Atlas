@@ -9,11 +9,10 @@ New-Shortcut -Source "$windir\AtlasDesktop" -Destination $defaultShortcut -Icon 
 
 # Copy shortcut to every user
 foreach ($userKey in (Get-RegUserPaths -NoDefault).PsPath) {
-	$folders = Get-ItemProperty -path "$userKey\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders"
-	$deskPath = $folders.Desktop
-	if (Test-Path $deskPath -PathType Container) {
+	$deskPath = (Get-ItemProperty -Path "$userKey\SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders" -Name 'Desktop' -EA 0).Desktop
+	if ($deskPath -and (Test-Path $deskPath -PathType Container)) {
 		Write-Output "Copying Desktop shortcut for '$userKey'..."
-		Copy-Item $defaultShortcut -Destination $deskPath -Force
+		Copy-Item $defaultShortcut -Destination $deskPath -Force -EA 0
 	} else {
 		Write-Error "Desktop path not found for '$userKey', shortcuts can't be copied."
 	}

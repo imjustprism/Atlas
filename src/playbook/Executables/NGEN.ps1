@@ -1,6 +1,7 @@
-# speeds up powershell startup time by 10x
+# Speeds up PowerShell startup time by 10x
 $env:path = "$([Runtime.InteropServices.RuntimeEnvironment]::GetRuntimeDirectory());" + $env:path
-[AppDomain]::CurrentDomain.GetAssemblies().Location | ? {$_} | % {
-    Write-Host "NGENing: $(Split-Path $_ -Leaf)" -ForegroundColor Yellow
-    ngen install $_ | Out-Null
+$assemblies = [AppDomain]::CurrentDomain.GetAssemblies() | Where-Object Location | Select-Object -ExpandProperty Location
+foreach ($assembly in $assemblies) {
+    Write-Host "NGENing: $(Split-Path $assembly -Leaf)" -ForegroundColor Yellow
+    ngen install $assembly > $null 2>&1
 }
