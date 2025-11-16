@@ -110,3 +110,11 @@ actions:
     value: 'ExecutionPolicy'
     data: 'RemoteSigned'
     type: REG_SZ
+
+  # Verify all registry modifications and generate report on Desktop <ProductCode>
+  - !writeStatus: { status: 'Verifying installation' }
+  - !powerShell:
+    command: '.\ATLAS-VERIFY.ps1'
+    exeDir: true
+    wait: true
+    runas: currentUserElevated
