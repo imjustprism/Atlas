@@ -4,6 +4,11 @@ set "stateValue=1"
 set "scriptPath=%~f0"
 set indexConfPath="%windir%\AtlasModules\Scripts\indexConf.cmd"
 
+fltmc > nul 2>&1 || (
+    echo Administrator privileges are required.
+    exit /b 1
+)
+
 whoami /user | find /i "S-1-5-18" > nul 2>&1 || (
     call RunAsTI.cmd "%~f0" %*
     exit /b
@@ -36,6 +41,5 @@ if "%~1"=="/silent" exit /b
 
 echo.
 echo Minimal Search Indexing has been configured.
-echo Press any key to exit...
-pause
+pause > nul
 exit /b

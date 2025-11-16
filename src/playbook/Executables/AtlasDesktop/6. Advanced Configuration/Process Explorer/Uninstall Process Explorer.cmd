@@ -39,8 +39,8 @@ del /f /q "%ProgramData%\Microsoft\Windows\Start Menu\Programs\Process Explorer.
 
 :: Check if Task Manager is still broken
 
-taskmgr.exe > nul 2>&1
-if %ERRORLEVEL% NEQ 0 (
+reg query "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\taskmgr.exe" /v "Debugger" > nul 2>&1
+if %ERRORLEVEL% EQU 0 (
     echo Warning: Task Manager is still not working, applying fallback fix...
 
     reg delete "HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\taskmgr.exe" /v "Debugger" /f > nul
