@@ -1,0 +1,96 @@
+{
+  "lsp": {
+    "yaml-language-server": {
+      "initialization_options": {
+        "yaml": {
+          "customTags": [
+            "!run mapping",
+            "!run sequence",
+            "!registryKey mapping",
+            "!registryKey sequence",
+            "!registryValue mapping",
+            "!registryValue sequence",
+            "!appx mapping",
+            "!appx sequence",
+            "!file mapping",
+            "!file sequence",
+            "!service mapping",
+            "!service sequence",
+            "!scheduledTask mapping",
+            "!scheduledTask sequence",
+            "!taskKill mapping",
+            "!taskKill sequence",
+            "!cmd mapping",
+            "!cmd sequence",
+            "!powerShell mapping",
+            "!powerShell sequence",
+            "!writeStatus mapping",
+            "!writeStatus sequence",
+            "!task mapping",
+            "!task sequence"
+          ],
+          "validate": false,
+          "schemas": {},
+          "schemaStore": {
+            "enable": false
+          }
+        }
+      },
+      "settings": {
+        "yaml": {
+          "customTags": [
+            "!run mapping",
+            "!run sequence",
+            "!registryKey mapping",
+            "!registryKey sequence",
+            "!registryValue mapping",
+            "!registryValue sequence",
+            "!appx mapping",
+            "!appx sequence",
+            "!file mapping",
+            "!file sequence",
+            "!service mapping",
+            "!service sequence",
+            "!scheduledTask mapping",
+            "!scheduledTask sequence",
+            "!taskKill mapping",
+            "!taskKill sequence",
+            "!cmd mapping",
+            "!cmd sequence",
+            "!powerShell mapping",
+            "!powerShell sequence",
+            "!writeStatus mapping",
+            "!writeStatus sequence",
+            "!task mapping",
+            "!task sequence"
+          ],
+          "validate": false,
+          "schemas": {},
+          "schemaStore": {
+            "enable": false
+          }
+        }
+      }
+    }
+  },
+  "languages": {
+    "PowerShell": {
+      "language_servers": []
+    },
+    "YAML": {
+      "formatter": {
+        "external": {
+          "command": "prettier",
+          "arguments": [
+            "--stdin-filepath",
+            "{buffer_path}",
+            "--parser",
+            "yaml",
+            "--single-quote"
+          ]
+        }
+      },
+      "format_on_save": "on"
+    }
+  }
+}
