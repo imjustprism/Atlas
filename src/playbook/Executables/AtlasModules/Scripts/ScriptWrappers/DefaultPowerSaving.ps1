@@ -14,8 +14,7 @@ Write-Host "Enabling power-saving ACPI devices..." -ForegroundColor Yellow
 & toggleDev.cmd -Enable '@("ACPI Processor Aggregator", "Microsoft Windows Management Interface for ACPI")' | Out-Null
 
 Write-Host "Enabling device power-saving..." -ForegroundColor Yellow
-$keys = Get-ChildItem -Path "HKLM:\SYSTEM\CurrentControlSet\Enum" -Recurse -EA 0
-foreach ($value in @(
+$valuesToRestore = @(
     "AllowIdleIrpInD3",
     "D3ColdSupported",
     "DeviceSelectiveSuspended",
@@ -28,13 +27,34 @@ foreach ($value in @(
     "WaitWakeEnabled",
     "WakeEnabled",
     "WdfDirectedPowerTransitionEnable"
-)) {
-    $oldValue = "$value-OLD"
-    $keys | Where-Object { $_.GetValueNames() -contains $oldValue } | ForEach-Object {
-        $keyPath = $_.PSPath
-        Remove-ItemProperty -Path $keyPath -Name $value
-        Rename-ItemProperty -Path $keyPath -Name $oldValue -NewName $value
-    }
+)
+
+function Restore-RegistryKey {
+    param($Key)
+
+    try {
+        $valueNames = $Key.GetValueNames()
+        foreach ($value in $valuesToRestore) {
+            $oldValue = "$value-OLD"
+            if ($valueNames -contains $oldValue) {
+                $keyPath = $Key.PSPath
+                Remove-ItemProperty -Path $keyPath -Name $value -EA 0
+                Rename-ItemProperty -Path $keyPath -Name $oldValue -NewName $value -EA 0
+            }
+        }
+
+        foreach ($subKeyName in $Key.GetSubKeyNames()) {
+            $subKey = Get-Item -Path "$($Key.PSPath)\$subKeyName" -EA 0
+            if ($subKey) {
+                Restore-RegistryKey $subKey
+            }
+        }
+    } catch {}
+}
+
+$rootKey = Get-Item -Path "HKLM:\SYSTEM\CurrentControlSet\Enum" -EA 0
+if ($rootKey) {
+    Restore-RegistryKey $rootKey
 }
 
 Write-Host "Enabling network adapter power saving..." -ForegroundColor Yellow

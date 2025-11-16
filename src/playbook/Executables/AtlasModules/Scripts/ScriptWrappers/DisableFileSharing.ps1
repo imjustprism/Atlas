@@ -29,8 +29,8 @@ Get-NetFirewallRule | Where-Object {
     $_.Profile -like "*Private*"
 } | Disable-NetFirewallRule
 
-reg import "$fileSharingConfigPath\Network Navigation Pane\Disable Network Navigation Pane (default).reg" | Out-Null
-reg import "$fileSharingConfigPath\Give Access To Menu\Disable Give Access To Menu (default).reg" | Out-Null
+reg import "$fileSharingConfigPath\Network Navigation Pane\Disable Network Navigation Pane (default).reg" *> $null
+reg import "$fileSharingConfigPath\Give Access To Menu\Disable Give Access To Menu (default).reg" *> $null
 
 if ($Silent) { exit }
 

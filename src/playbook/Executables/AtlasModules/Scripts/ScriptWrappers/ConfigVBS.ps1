@@ -14,7 +14,7 @@ if ($DisableAllVBS) {
 	Write-Warning "Disabling VBS features..."
 
 	# Memory Integrity
-	New-ItemProperty -Path $memIntegrity -Name "Enabled" -Value 0 -PropertyType DWORD -Force # Need to be forced since Windows 11 24H2
+	New-ItemProperty -Path $memIntegrity -Name "Enabled" -Value 0 -PropertyType DWORD -Force
 
 	# Kernel-mode Hardware-enforced Stack Protection (Windows 11 only)
 	if (Test-Path $kernelShadowStacks) {
@@ -49,13 +49,13 @@ $pages = @(
 		Commands = {
 			$SecurityServicesRunning = (Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\Microsoft\Windows\DeviceGuard).SecurityServicesRunning
 			$VirtualizationBasedSecurityStatus = (Get-CimInstance -ClassName Win32_DeviceGuard -Namespace root\Microsoft\Windows\DeviceGuard).VirtualizationBasedSecurityStatus
-			
+
 			$VirtualizationBasedSecurityStatusList = @(
 				"VBS isn't enabled",
 				"VBS is enabled but not running",
 				"VBS is enabled and running"
 			)
-			
+
 			$VirtualizationBasedSecurityRunningFeatures = @(
 				"None",
 				"Windows Defender Credential Guard",
@@ -70,7 +70,7 @@ $pages = @(
 					Write-Host "$feature`n"
 				}
 			}
-			
+
 			Write-Host "Notes: " -ForegroundColor Yellow -NoNewLine
 			Write-Host "Some features here are exclusive to Windows 11, you will be mostly looking at Memory Integrity on Windows 10."
 			Write-Host "       Please note that on older CPUs especially, features like Memory Integrity will reduce performance significantly.`n"
@@ -81,18 +81,18 @@ $pages = @(
 			} else {
 				Write-Host "`nVirtualization Based Security features currently running:`n" -ForegroundColor Yellow
 			}
-			
+
 			foreach ($feature in $VirtualizationBasedSecurityRunningFeatures) {
 				if ($feature -eq "None") {
 					continue
 				}
-				
+
 				Write-Host " - " -NoNewLine
-				
+
 				if ($SecurityServicesRunning -contains $VirtualizationBasedSecurityRunningFeatures.IndexOf($feature)) {
 					Write-Host "$feature is running" -ForegroundColor Green
 				} else {
-					# $($VirtualizationBasedSecurityRunningFeatures.IndexOf($feature)). 
+					# $($VirtualizationBasedSecurityRunningFeatures.IndexOf($feature)).
 					Write-Host "$feature is not running" -ForegroundColor Red
 				}
 			}
@@ -110,27 +110,27 @@ $pages = @(
 				"System Guard Secure Launch",
 				"SMM Firmware Measurement"
 			)
-			
+
 			Write-Host "Note: " -ForegroundColor Yellow -NoNewLine
 			Write-Host "These are the features configured on startup."
-			
+
 			if ($SecurityServicesConfigured -contains '0') {
 				Write-Host "`nNo Virtualization Based Security features are configured.`n" -ForegroundColor Green
 			} else {
 				Write-Host "`nVirtualization Based Security features configured:`n" -ForegroundColor Yellow
 			}
-			
+
 			foreach ($feature in $VirtualizationBasedSecurityConfiguredFeatures) {
 				if ($feature -eq "None") {
 					continue
 				}
-				
+
 				Write-Host " - " -NoNewLine
-				
+
 				if ($SecurityServicesConfigured -contains $VirtualizationBasedSecurityConfiguredFeatures.IndexOf($feature)) {
 					Write-Host "$feature is configured" -ForegroundColor Green
 				} else {
-					# $($VirtualizationBasedSecurityConfiguredFeatures.IndexOf($feature)). 
+					# $($VirtualizationBasedSecurityConfiguredFeatures.IndexOf($feature)).
 					Write-Host "$feature is not configured" -ForegroundColor Red
 				}
 			}
@@ -157,18 +157,18 @@ $pages = @(
 			} else {
 				Write-Host "Security features needed for Virtualization Based Security:`n" -ForegroundColor Yellow
 			}
-			
+
 			foreach ($feature in $VirtualizationBasedSecurityRequiredSecurity) {
 				if ($feature -eq "None") {
 					continue
 				}
-				
+
 				Write-Host " - " -NoNewLine
-				
+
 				if ($RequiredSecurityProperties -contains $VirtualizationBasedSecurityRequiredSecurity.IndexOf($feature)) {
 					Write-Host "$feature is required" -ForegroundColor Green
 				} else {
-					# $($VirtualizationBasedSecurityRequiredSecurity.IndexOf($feature)). 
+					# $($VirtualizationBasedSecurityRequiredSecurity.IndexOf($feature)).
 					Write-Host "$feature is not required" -ForegroundColor Red
 				}
 			}
@@ -196,18 +196,18 @@ $pages = @(
 			} else {
 				Write-Host "Security features available for Virtualization Based Security:`n" -ForegroundColor Yellow
 			}
-			
+
 			foreach ($feature in $VirtualizationBasedSecurityAvailableSecurity) {
 				if ($feature -eq "None") {
 					continue
 				}
-				
+
 				Write-Host " - " -NoNewLine
-				
+
 				if ($AvailableSecurityProperties -contains $VirtualizationBasedSecurityAvailableSecurity.IndexOf($feature)) {
 					Write-Host "$feature is available" -ForegroundColor Green
 				} else {
-					# $($VirtualizationBasedSecurityAvailableSecurity.IndexOf($feature)). 
+					# $($VirtualizationBasedSecurityAvailableSecurity.IndexOf($feature)).
 					Write-Host "$feature is not available" -ForegroundColor Red
 				}
 			}
@@ -238,7 +238,7 @@ function Wait-Key {
 			Wait-Key
 		}
 	}
-	
+
 	Show-Page
 }
 
@@ -246,9 +246,9 @@ function Show-Page {
 	Clear-Host
 	$currentPage = $pages[$currentPageIndex]
 	$Host.UI.RawUI.WindowTitle = "$($currentPage.Title)"
-	
+
 	& $currentPage.Commands
-	
+
 	# Write-Host "`nCurrent Page: $($currentPage.Title)" -ForegroundColor Yellow
 	Write-Host "`n------------- Page $($currentPageIndex + 1) -------------" -ForegroundColor Yellow
 	Write-Host "(n) Next Page || (b) Previous Page"

@@ -90,8 +90,7 @@ foreach ($setting in @(
 }
 
 Write-Host "Disabling device power-saving..." -ForegroundColor Yellow
-$keys = Get-ChildItem -Path "HKLM:\SYSTEM\CurrentControlSet\Enum" -Recurse -EA 0
-foreach ($value in @(
+$valuesToDisable = @(
     "AllowIdleIrpInD3",
     "D3ColdSupported",
     "DeviceSelectiveSuspended",
@@ -104,17 +103,38 @@ foreach ($value in @(
     "WaitWakeEnabled",
     "WakeEnabled",
     "WdfDirectedPowerTransitionEnable"
-)) {
-    $keys | Where-Object { $_.GetValueNames() -contains $value } | ForEach-Object {
-        $keyPath = $_.PSPath
-        $oldValue = "$value-OLD"
+)
 
-        if ($null -eq (Get-ItemProperty -Path $keyPath -Name $oldValue -EA 0)) {
-            Rename-ItemProperty -Path $keyPath -Name $value -NewName $oldValue -Force
+function Process-RegistryKey {
+    param($Key)
+
+    try {
+        $valueNames = $Key.GetValueNames()
+        foreach ($value in $valuesToDisable) {
+            if ($valueNames -contains $value) {
+                $keyPath = $Key.PSPath
+                $oldValue = "$value-OLD"
+
+                if ($null -eq $Key.GetValue($oldValue, $null)) {
+                    Rename-ItemProperty -Path $keyPath -Name $value -NewName $oldValue -Force -EA 0
+                }
+
+                Set-ItemProperty -Path $keyPath -Name $value -Value 0 -Type DWORD -Force -EA 0
+            }
         }
 
-        Set-ItemProperty -Path $KeyPath -Name $value -Value 0 -Type DWORD -Force
-    }
+        foreach ($subKeyName in $Key.GetSubKeyNames()) {
+            $subKey = Get-Item -Path "$($Key.PSPath)\$subKeyName" -EA 0
+            if ($subKey) {
+                Process-RegistryKey $subKey
+            }
+        }
+    } catch {}
+}
+
+$rootKey = Get-Item -Path "HKLM:\SYSTEM\CurrentControlSet\Enum" -EA 0
+if ($rootKey) {
+    Process-RegistryKey $rootKey
 }
 Get-CimInstance -ClassName MSPower_DeviceEnable -Namespace root/WMI | Set-CimInstance -Property @{ Enable = $false }
 
